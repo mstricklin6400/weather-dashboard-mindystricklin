@@ -4,6 +4,9 @@ from PIL import Image, ImageTk
 import requests
 import os
 import pygame
+import numpy as np
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
 
 # --- API Setup ---
 API_KEY = "0a5a26c69d2686f3e8ce16ca52f16e0a"
@@ -22,28 +25,31 @@ def play_music(filename):
 def stop_music():
     pygame.mixer.music.stop()
 
-# --- Tkinter UI ---
-root = tk.Tk()
-root.title("Weather Persona")
-root.geometry("400x500")
+# --- GUI Setup ---
+root = ttk.Window(themename="minty")
+root.title("Weather App")
+root.geometry("600x650")  # WIDER and taller window
 root.resizable(False, False)
 
 # --- UI Elements ---
-title_label = tk.Label(root, text="🌤️ Weather Persona App", font=("Helvetica", 16, "bold"))
-title_label.pack(pady=10)
+title_label = ttk.Label(root, text="🌤️ Weather App", font=("Helvetica", 20, "bold"))
+title_label.pack(pady=15)
 
-city_entry = tk.Entry(root, width=30, font=("Helvetica", 12))
+city_entry = ttk.Entry(root, width=40, font=("Helvetica", 13))  # WIDER input
 city_entry.pack(pady=10)
 city_entry.insert(0, "Enter city name")
 
-fetch_button = tk.Button(root, text="Get Weather", font=("Helvetica", 12), command=lambda: fetch_weather())
+fetch_button = ttk.Button(root, text="Get Weather", bootstyle=PRIMARY, command=lambda: fetch_weather())
 fetch_button.pack(pady=10)
 
-weather_result = tk.Label(root, text="", font=("Helvetica", 12))
+weather_result = ttk.Label(root, text="", font=("Helvetica", 14))  # Larger font
 weather_result.pack(pady=10)
 
-avatar_label = tk.Label(root)
-avatar_label.pack(pady=10)
+prediction_label = ttk.Label(root, text="", font=("Helvetica", 13, "italic"), foreground="blue")
+prediction_label.pack(pady=5)
+
+avatar_label = ttk.Label(root)
+avatar_label.pack(pady=20)
 
 # --- Avatar Selection ---
 def get_weather_type(description):
@@ -65,7 +71,7 @@ def load_avatar(weather_type):
     path = os.path.join("avatars", f"{weather_type}.gif")
     try:
         img = Image.open(path)
-        img = img.resize((200, 200))
+        img = img.resize((250, 250))  # Slightly bigger avatar
         return ImageTk.PhotoImage(img)
     except Exception as e:
         messagebox.showerror("Image Error", f"Could not load avatar: {e}")
@@ -73,6 +79,40 @@ def load_avatar(weather_type):
 
 def load_music(weather_type):
     return os.path.join("music", f"{weather_type}.mp3")
+
+# --- Forecast & Prediction ---
+def fetch_forecast_and_predict(city):
+    forecast_url = f"http://api.openweathermap.org/data/2.5/forecast?q={city}&appid={API_KEY}&units=imperial"
+
+    try:
+        response = requests.get(forecast_url)
+        data = response.json()
+
+        temps = []
+        seen_days = set()
+
+        for entry in data["list"]:
+            date = entry["dt_txt"].split(" ")[0]
+            if date not in seen_days:
+                temps.append(entry["main"]["temp_max"])
+                seen_days.add(date)
+            if len(temps) == 5:
+                break
+
+        if len(temps) < 5:
+            prediction_label.config(text="Not enough data to predict.")
+            return
+
+        x = np.arange(len(temps))
+        coeffs = np.polyfit(x, temps, 1)
+        model = np.poly1d(coeffs)
+        tomorrow_temp = round(model(len(temps)), 2)
+
+        prediction_label.config(text=f"📈 Predicted Temp Tomorrow: {tomorrow_temp}°F")
+
+    except Exception as e:
+        prediction_label.config(text="Prediction failed.")
+        print("Forecast error:", e)
 
 # --- Fetch Weather ---
 def fetch_weather():
@@ -82,7 +122,7 @@ def fetch_weather():
         return
 
     url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={API_KEY}&units=imperial"
-    
+
     try:
         response = requests.get(url)
         data = response.json()
@@ -90,6 +130,7 @@ def fetch_weather():
         if data.get("cod") != 200:
             weather_result.config(text="City not found.")
             avatar_label.config(image="")
+            prediction_label.config(text="")
             stop_music()
             return
 
@@ -99,16 +140,16 @@ def fetch_weather():
 
         weather_type = get_weather_type(description)
 
-        # Load and display avatar
         avatar_img = load_avatar(weather_type)
         if avatar_img:
             avatar_label.config(image=avatar_img)
-            avatar_label.image = avatar_img  # Prevent garbage collection
+            avatar_label.image = avatar_img
 
-        # Load and play music
         stop_music()
         music_path = load_music(weather_type)
         play_music(music_path)
+
+        fetch_forecast_and_predict(city)
 
     except Exception as e:
         messagebox.showerror("API Error", f"Failed to fetch weather: {e}")
